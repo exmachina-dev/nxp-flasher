@@ -17,7 +17,7 @@ nxpprog.py
 
 # Notes
 
-Althought it should support every chip specified in nxpchips.py file, it
+Althought it should support every chip specified in nxpchips.py file, it has
 only been tested with the LPC1768.
 
 Because this tool is written in Python it should run on every platform.
