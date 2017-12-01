@@ -25,7 +25,8 @@ Even if it's been only tested on Windows 10.
 
 # Source code and credits
 
-Based on nxpprog program by Brian Murphy <brian@murphy.dk> released under MIT license
-Original source code can be found at [SourceForge](https://sourceforge.net/projects/nxpprog)
+Based on nxpprog program by Brian Murphy <brian@murphy.dk> released under MIT license.
 
-Source code for this fork can be found at [GitHub](https://github.com/exmachina-dev/nxp-flasher)
+Original source code can be found at [SourceForge](https://sourceforge.net/projects/nxpprog).
+
+Source code for this fork can be found at [GitHub](https://github.com/exmachina-dev/nxp-flasher).
