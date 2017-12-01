@@ -29,361 +29,58 @@ import struct
 import getopt
 import serial # pyserial
 import time
+import logging
 
 import ihex
+from nxpchips import NXPchip
 
-# flash sector sizes for lpc23xx/lpc24xx/lpc214x processors
-flash_sector_lpc23xx = (
-                        4, 4, 4, 4, 4, 4, 4, 4,
-                        32, 32, 32, 32, 32, 32, 32,
-                        32, 32, 32, 32, 32, 32, 32,
-                        4, 4, 4, 4, 4, 4
-                       )
-
-# flash sector sizes for 64k lpc21xx processors (without bootsector)
-flash_sector_lpc21xx_64 = (
-                            8, 8, 8, 8, 8, 8, 8, 8
-                           )
-
-# flash sector sizes for 128k lpc21xx processors (without bootsector)
-flash_sector_lpc21xx_128 = (
-                            8, 8, 8, 8, 8, 8, 8, 8,
-                            8, 8, 8, 8, 8, 8, 8
-                           )
-
-# flash sector sizes for 256k lpc21xx processors (without bootsector)
-flash_sector_lpc21xx_256 = (
-                            8, 8, 8, 8, 8, 8, 8, 8,
-                            64, 64,
-                            8, 8, 8, 8, 8, 8, 8,
-                           )
-
-# flash sector sizes for lpc17xx processors
-flash_sector_lpc17xx = (
-                        4, 4, 4, 4, 4, 4, 4, 4,
-                        4, 4, 4, 4, 4, 4, 4, 4,
-                        32, 32, 32, 32, 32, 32, 32,
-                        32, 32, 32, 32, 32, 32, 32,
-                       )
-
-# flash sector sizes for lpc11xx processors
-flash_sector_lpc11xx = (
-        4, 4, 4, 4, 4, 4, 4, 4,
-        )
-
-# flash sector sizes for lpc18xx processors
-flash_sector_lpc18xx = (
-                        8, 8, 8, 8, 8, 8, 8, 8,
-                        64, 64, 64, 64, 64, 64, 64,
-                       )
+logger = logging.getLogger('NXPprog')
+logger.setLevel(logging.DEBUG)
+fmt = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+ch.setFormatter(fmt)
+logger.addHandler(ch)
 
 
-flash_prog_buffer_base_default = 0x40001000
-flash_prog_buffer_size_default = 4096
+class NXPprog(object):
+    BAUDRATES = (9600, 19200, 38400, 57600, 115200, 230400)
+    OK = 'OK'
+    RESEND = 'RESEND'
+    SYNC_STR = 'Synchronized'
 
-# cpu parameter table
-cpu_parms = {
-        # 128k flash
-        "lpc2364" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "flash_sector_count": 11,
-            "devid": 369162498
-        },
-        # 256k flash
-        "lpc2365" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "flash_sector_count": 15,
-            "devid": 369158179
-        },
-        "lpc2366" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "flash_sector_count": 15,
-            "devid": 369162531
-        },
-        # 512k flash
-        "lpc2367" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 369158181
-        },
-        "lpc2368" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 369162533
-        },
-        "lpc2377" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 385935397
-        },
-        "lpc2378" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 385940773
-        },
-        "lpc2387" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 402716981
+    # for calculations in 32 bit modulo arithmetic
+    U32_MOD = (2 ** 32)
+    # uuencoded line length
+    UU_LINE_SIZE = 45
+    # uuencoded block length
+    UU_BLOCK_SIZE = UU_LINE_SIZE * 20
 
-        },
-        "lpc2388" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 402718517
-        },
-        # lpc21xx
-        # some incomplete info here need at least sector count
-        "lpc2141": {
-            "devid": 196353,
-            "flash_sector": flash_sector_lpc23xx,
-            "flash_sector_count": 8,
-        },
-        "lpc2142": {
-            "flash_sector": flash_sector_lpc23xx,
-            "flash_sector_count": 9,
-            "devid": 196369,
-        },
-        "lpc2144": {
-            "flash_sector": flash_sector_lpc23xx,
-            "flash_sector_count": 11,
-            "devid": 196370,
-        },
-        "lpc2146": {
-            "flash_sector": flash_sector_lpc23xx,
-            "flash_sector_count": 15,
-            "devid": 196387,
-        },
-        "lpc2148": {
-            "flash_sector": flash_sector_lpc23xx,
-            "flash_sector_count": 27,
-            "devid": 196389,
-        },
-        "lpc2109" : {
-            "flash_sector": flash_sector_lpc21xx_64,
-            "devid": 33685249
-        },
-        "lpc2119" : {
-            "flash_sector": flash_sector_lpc21xx_128,
-            "devid": 33685266
-        },
-        "lpc2129" : {
-            "flash_sector": flash_sector_lpc21xx_256,
-            "devid": 33685267
-        },
-        "lpc2114" : {
-            "flash_sector" : flash_sector_lpc21xx_128,
-            "devid": 16908050
-        },
-        "lpc2124" : {
-            "flash_sector" : flash_sector_lpc21xx_256,
-            "devid": 16908051
-        },
-        "lpc2194" : {
-            "flash_sector" : flash_sector_lpc21xx_256,
-            "devid": 50462483
-        },
-        "lpc2292" : {
-            "flash_sector" : flash_sector_lpc21xx_256,
-            "devid": 67239699
-        },
-        "lpc2294" : {
-            "flash_sector" : flash_sector_lpc21xx_256,
-            "devid": 84016915
-        },
-        # lpc22xx
-        "lpc2212" : {
-            "flash_sector" : flash_sector_lpc21xx_128
-        },
-        "lpc2214" : {
-            "flash_sector" : flash_sector_lpc21xx_256
-        },
-        # lpc24xx
-        "lpc2458" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 352386869,
-        },
-        "lpc2468" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 369164085,
-        },
-        "lpc2478" : {
-            "flash_sector" : flash_sector_lpc23xx,
-            "devid": 386006837,
-        },
-        # lpc17xx
-        "lpc1768" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26013f37,
-            "cpu_type": "thumb",
-        },
-        "lpc1766" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26013f33,
-            "cpu_type": "thumb",
-        },
-        "lpc1765" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26013733,
-            "cpu_type": "thumb",
-        },
-        "lpc1764" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26011922,
-            "cpu_type": "thumb",
-        },
-        "lpc1758" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26013f34,
-            "cpu_type": "thumb",
-        },
-        "lpc1756" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26011723,
-            "cpu_type": "thumb",
-        },
-        "lpc1754" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26011722,
-            "cpu_type": "thumb",
-        },
-        "lpc1752" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26001121,
-            "cpu_type": "thumb",
-        },
-        "lpc1751" : {
-            "flash_sector" : flash_sector_lpc17xx,
-            "flash_prog_buffer_base" : 0x10001000,
-            "csum_vec": 7,
-            "devid": 0x26001110,
-            "cpu_type": "thumb",
-        },
-        "lpc1114" : {
-            "flash_sector" : flash_sector_lpc11xx,
-            "flash_prog_buffer_base" : 0x10000400,
-            "devid": 0x0444102B,
-            "flash_prog_buffer_size" : 1024
-        },
-        # lpc18xx
-        "lpc1817" : {
-            "flash_sector" : flash_sector_lpc18xx,
-            "flash_bank_addr": (0x1a000000, 0x1b000000),
-            "flash_prog_buffer_base" : 0x10081000,
-            "devid": (0xF001DB3F, 0),
-            "csum_vec": 7,
-            "cpu_type": "thumb",
-        },
-        "lpc1832" : {
-            "flash_sector" : flash_sector_lpc18xx,
-            "flash_bank_addr": (0x1a000000),
-            "flash_prog_buffer_base" : 0x10081000,
-            "csum_vec": 7,
-            "cpu_type": "thumb",
-        },
-        "lpc1833" : {
-            "flash_sector" : flash_sector_lpc18xx,
-            "flash_sector_count": 11,
-            "flash_bank_addr": (0x1a000000, 0x1b000000),
-            "flash_prog_buffer_base" : 0x10081000,
-            "devid": (0xf001da30, 0x44),
-            "csum_vec": 7,
-            "cpu_type": "thumb",
-        },
-        "lpc1837" : {
-            "flash_sector" : flash_sector_lpc18xx,
-            "flash_bank_addr": (0x1a000000, 0x1b000000),
-            "flash_prog_buffer_base" : 0x10081000,
-            "devid": (0xf001da30, 0),
-            "csum_vec": 7,
-            "cpu_type": "thumb",
-        },
-        "lpc1853" : {
-            "flash_sector" : flash_sector_lpc18xx,
-            "flash_sector_count": 11,
-            "flash_bank_addr": (0x1a000000, 0x1b000000),
-            "flash_prog_buffer_base" : 0x10081000,
-            "devid": (0xf001d830, 0),
-            "csum_vec": 7,
-            "cpu_type": "thumb",
-        },
-        "lpc1857" : {
-            "flash_sector" : flash_sector_lpc18xx,
-            "flash_bank_addr": (0x1a000000, 0x1b000000),
-            "flash_prog_buffer_base" : 0x10081000,
-            "devid": (0xf001d830, 0x44),
-            "csum_vec": 7,
-            "cpu_type": "thumb",
-        },
-}
+    FLASH_BUFFER_BASE_DEFAULT = 0x40001000
+    FLASH_BUFFER_SIZE_DEFAULT = 4096
 
-
-def log(str):
-    sys.stderr.write("%s\n" % str)
-
-def dump(name, str):
-    sys.stderr.write("%s:\n" % name)
-    ct = 0
-    for i in str:
-        sys.stderr.write("%x, " % ord(i))
-        ct += 1
-        if ct == 4:
-            ct = 0
-            sys.stderr.write("\n")
-    sys.stderr.write("\n")
-
-
-def panic(str):
-    log(str)
-    sys.exit(1)
-
-
-def syntax():
-    panic(
-"""{0} <serial device> <image_file> : program image file to processor.
-{0} --start=<addr> <serial device> : start the device at <addr>
-{0} --read=<file> --addr=<address> --len=<length>:
-            read length bytes from address and dump them to a file
-{0} --list : list supported processors.
-options:
-    --cpu=<cpu> : set the cpu type.
-    --oscfreq=<freq> : set the oscillator frequency.
-    --baud=<baud> : set the baud rate.
-    --xonxoff : enable xonxoff flow control.
-    --control : use RTS and DTR to control reset and int0.
-    --addr=<image start address> : set the base address for the image.
-    --eraseonly : don't program, just erase. Implies --eraseall.
-    --eraseall : erase all flash not just the area written to.
-    --filetype=[ihex|bin]: set filetype to intel hex format or raw binary
-    --bank=[0|1]: select bank for devices with flash banks
-""".format(sys.argv[0]))
-
-class nxpprog:
-    def __init__(self, cpu, device, baud, osc_freq, xonxoff = 0, control = 0):
+    def __init__(self, **kwargs):
+        self.serdev = None
         self.echo_on = 1
-        self.OK = 'OK'
-        self.RESEND = 'RESEND'
-        self.sync_str = 'Synchronized'
 
-        # for calculations in 32 bit modulo arithmetic
-        self.U32_MOD = (2 ** 32)
+        self.device = kwargs.pop('device')
+        self.baudrate = kwargs.pop('baudrate', 115200)
+        self.xonxoff = kwargs.pop('xonxoff', False)
+        self.control_isp_mode = kwargs.pop('control', False)
 
-        # uuencoded line length
-        self.uu_line_size = 45
-        # uuencoded block length
-        self.uu_block_size = self.uu_line_size * 20
+        cpu = kwargs.pop('cpu', None)
+        if cpu:
+            self.cpu = NXPchip(cpu)
+        else:
+            self.cpu = None
 
-        self.serdev = serial.Serial(device, baud)
+        self.oscfreq = kwargs.pop('oscfreq', 16000)
+
+    def init_serial(self):
+        if self.serdev:
+            raise OSError('Serial connection already started')
+
+        self.serdev = serial.Serial(self.device, self.baudrate)
 
         # set a two second timeout just in case there is nothing connected
         # or the device is in the wrong mode.
@@ -391,32 +88,33 @@ class nxpprog:
         # use them?
         self.serdev.timeout = 5
         # device wants Xon Xoff flow control
-        if xonxoff:
+        if self.xonxoff:
             self.serdev.xonxoff = 1
-
-        self.cpu = cpu
 
         # reset pin is controlled by DTR implying int0 is controlled by RTS
         self.reset_pin = "dtr"
 
-        if control:
+        if self.control_isp_mode:
             self.isp_mode()
 
         self.serdev.reset_input_buffer()
 
-        self.connection_init(osc_freq)
+        self.connection_init()
 
-        self.banks = self.get_cpu_parm("flash_bank_addr", 0)
+        self.banks = self.cpu.get_parameter("flash_bank_addr", 0)
 
         if self.banks == 0:
             self.sector_commands_need_bank = 0
         else:
             self.sector_commands_need_bank = 1
 
-    # put the chip in isp mode by resetting it using RTS and DTR signals
-    # this is of course only possible if the signals are connected in
-    # this way
     def isp_mode(self):
+        """
+            Put the chip in isp mode by resetting it using RTS and DTR signals
+            this is of course only possible if the signals are connected in
+            this way
+        """
+
         self.reset(0)
         time.sleep(.1)
         self.reset(1)
@@ -439,21 +137,21 @@ class nxpprog:
         else:
             self.serdev.rts = level
 
-    def connection_init(self, osc_freq):
-        self.sync(osc_freq)
+    def connection_init(self):
+        self.sync(self.oscfreq)
 
-        if self.cpu == "autodetect":
+        if not self.cpu:
             devid = self.get_devid()
-            for dcpu in cpu_parms.keys():
-                cpu_devid = cpu_parms[dcpu].get("devid")
+            for dcpu in NXPchip.CPUS.keys():
+                cpu_devid = NXPchip.CPUS[dcpu].get("devid")
                 if not cpu_devid:
                     continue
                 if devid == cpu_devid:
-                    log("detected %s" % dcpu)
-                    self.cpu = dcpu
+                    logger.info("Chip detected: %s" % dcpu.upper())
+                    self.cpu = NXPchip(dcpu)
                     break
-            if self.cpu == "autodetect":
-                panic("Cannot autodetect from device id %d(0x%x), set cpu name manually" %
+            if not self.cpu:
+                logger.error("Cannot autodetect from device id %d(0x%x), set cpu name manually" %
                         (devid, devid))
 
         # unlock write commands
@@ -477,9 +175,7 @@ class nxpprog:
             c = self.serdev.read(1)
             if not c:
                 break
-            if c == b'\r':
-                continue
-            if c == b'\n':
+            if c in (b'\n', b'\r'):
                 if not line:
                     continue
                 else:
@@ -514,33 +210,38 @@ class nxpprog:
         self.dev_write(b'?')
         s = self.dev_readline()
         if not s:
-            panic("sync timeout")
-        if s != self.sync_str:
-            panic("no sync string")
+            logger.error("Sync timeout")
+            sys.exit(1)
+        if s != self.SYNC_STR:
+            logger.error("No sync string read (got {}, expected {})".format(s, self.SYNC_STR))
+            sys.exit(1)
 
-        self.dev_writeln(self.sync_str)
-        # recieve our echoed data
+        self.dev_writeln(self.SYNC_STR)
+        # receive our echoed data
         s = self.dev_readline()
-        if s != self.sync_str:
-            panic("no sync string")
+        if s != self.SYNC_STR:
+            logger.error("No sync string read (got {}, expected {})".format(s, self.SYNC_STR))
+            sys.exit(1)
 
         s = self.dev_readline()
         if s != self.OK:
-            panic("not ok")
+            logger.error("No OK string read (got {}, expected {})".format(s, self.OK))
+            sys.exit(1)
 
         self.dev_writeln('%d' % osc)
         # discard echo
         s = self.dev_readline()
         s = self.dev_readline()
         if s != self.OK:
-            panic("osc not ok")
+            logger.error("No OK string read while setting OSC (got {}, expected {})".format(s, self.OK))
+            sys.exit(1)
 
         self.dev_writeln('A 0')
         # discard echo
         s = self.dev_readline()
         s = self.dev_readline()
         if int(s):
-            panic("echo disable failed")
+            logger.warn("Disabling echo failed")
 
         self.echo_on = 0
 
@@ -557,10 +258,10 @@ class nxpprog:
 
         self.isp_command("W %d %d\n" % ( addr, data_len ))
 
-        for i in range(0, data_len, self.uu_line_size):
+        for i in range(0, data_len, self.UU_LINE_SIZE):
             c_line_size = data_len - i
-            if c_line_size > self.uu_line_size:
-                c_line_size = self.uu_line_size
+            if c_line_size > self.UU_LINE_SIZE:
+                c_line_size = self.UU_LINE_SIZE
             block = data[i:i+c_line_size]
             bstr = binascii.b2a_uu(block)
             self.dev_write(bstr)
@@ -575,8 +276,8 @@ class nxpprog:
         if status == self.OK:
             return ""
 
-        # unknown status result
-        panic(status)
+        logger.error('Unknown status: {}'.format(status))
+        sys.exit(1)
 
     def uudecode(self, line):
         # uu encoded data has an encoded length first
@@ -610,7 +311,7 @@ class nxpprog:
     def read_block(self, addr, data_len, fd = None):
         self.isp_command("R %d %d\n" % ( addr, data_len ))
 
-        expected_lines = (data_len + self.uu_line_size - 1)/self.uu_line_size
+        expected_lines = (data_len + self.UU_LINE_SIZE - 1)/self.UU_LINE_SIZE
 
         data = ""
         for i in range(0, expected_lines, 20):
@@ -620,15 +321,14 @@ class nxpprog:
             cdata = ""
             for i in range(0, lines):
                 line = self.dev_readline()
-
                 decoded = self.uudecode(line)
-
                 cdata += decoded
 
             s = self.dev_readline()
 
             if int(s) != self.sum(cdata):
-                panic("checksum mismatch on read got %x expected %x" % (int(s), self.sum(data)))
+                logger.error("Checksum mismatch on read got %x expected %x" % (int(s), self.sum(data)))
+                sys.exit(1)
             else:
                 self.dev_writeln(self.OK)
 
@@ -644,25 +344,25 @@ class nxpprog:
 
     def write_ram_data(self, addr, data):
         image_len = len(data)
-        for i in range(0, image_len, self.uu_block_size):
+        for i in range(0, image_len, self.UU_BLOCK_SIZE):
 
             a_block_size = image_len - i
-            if a_block_size > self.uu_block_size:
-                a_block_size = self.uu_block_size
+            if a_block_size > self.UU_BLOCK_SIZE:
+                a_block_size = self.UU_BLOCK_SIZE
 
             err = self.write_ram_block(addr, data[i : i + a_block_size])
             if err:
-                panic("write error: %s" % err)
+                logger.error("Write error: %s", err)
+                sys.exit(1)
 
             addr += a_block_size
 
-
     def find_flash_sector(self, addr):
-        table = self.get_cpu_parm("flash_sector")
-        flash_base_addr = self.get_cpu_parm("flash_bank_addr", 0)
-        if not flash_base_addr:
-            faddr = 0
-        else:
+        table = self.cpu.get_parameter("flash_sector")
+        flash_base_addr = self.cpu.get_parameter("flash_bank_addr", 0)
+
+        faddr = 0
+        if flash_base_addr:
             faddr = flash_base_addr[0] # fix to have a current flash bank
         for i in range(0, len(table)):
             n_faddr = faddr + table[i] * 1024
@@ -671,20 +371,18 @@ class nxpprog:
             faddr = n_faddr
         return -1
 
-
     def bytestr(self, ch, count):
         data = b''
         for i in range(0, count):
             data += bytes([ch])
         return data
 
-
     def insert_csum(self, orig_image):
         # make this a valid image by inserting a checksum in the correct place
         intvecs = struct.unpack("<8I", orig_image[0:32])
 
         # default vector is 5: 0x14, new cortex cpus use 7: 0x1c
-        valid_image_csum_vec = self.get_cpu_parm("csum_vec", 5)
+        valid_image_csum_vec = self.cpu.get_parameter("csum_vec", 5)
         # calculate the checksum over the interrupt vectors
         csum = 0
         intvecs_list = []
@@ -698,8 +396,8 @@ class nxpprog:
         csum %= self.U32_MOD
         csum = self.U32_MOD - csum
 
-        log("inserting intvec checksum %08x in image at offset %d" %
-                (csum, valid_image_csum_vec))
+        logger.info("Inserting intvec checksum %08x in image at offset %d",
+                csum, valid_image_csum_vec)
 
         intvecs_list[valid_image_csum_vec] = csum
 
@@ -722,13 +420,12 @@ class nxpprog:
     def erase_sectors(self, start_sector, end_sector):
         self.prepare_flash_sectors(start_sector, end_sector)
 
-        log("erasing flash sectors %d-%d" % (start_sector, end_sector))
+        logger.info("Erasing flash sectors %d-%d", start_sector, end_sector)
 
         if self.sector_commands_need_bank:
             self.isp_command("E %d %d 0" % (start_sector, end_sector))
         else:
             self.isp_command("E %d %d" % (start_sector, end_sector))
-
 
     def erase_flash(self, start_addr, end_addr):
         start_sector = self.find_flash_sector(start_addr)
@@ -736,37 +433,23 @@ class nxpprog:
 
         self.erase_sectors(start_sector, end_sector)
 
-
-    def get_cpu_parm(self, key, default = None):
-        ccpu_parms = cpu_parms.get(self.cpu)
-        if not ccpu_parms:
-            panic("no parameters defined for cpu %s" % self.cpu)
-        parm = ccpu_parms.get(key)
-        if parm:
-            return parm
-        if default != None:
-            return default
-        else:
-            panic("no value for required cpu parameter %s" % key)
-
-
     def erase_all(self):
-        end_sector = self.get_cpu_parm("flash_sector_count",
-            len(self.get_cpu_parm("flash_sector"))) - 1
+        end_sector = self.cpu.get_parameter("flash_sector_count",
+            len(self.cpu.get_parameter("flash_sector"))) - 1
 
         self.erase_sectors(0, end_sector)
 
-
-    def prog_image(self, image, flash_addr_base = 0,
-            erase_all = 0):
+    def prog_image(self, image, flash_addr_base=None, erase_all=False):
+        if flash_addr_base is None:
+            flash_addr_base = 0
 
         # the base address of the ram block to be written to flash
-        ram_addr = self.get_cpu_parm("flash_prog_buffer_base",
-                flash_prog_buffer_base_default)
+        ram_addr = self.cpu.get_parameter("flash_prog_buffer_base",
+                self.FLASH_BUFFER_BASE_DEFAULT)
         # the size of the ram block to be written to flash
         # 256 | 512 | 1024 | 4096
-        ram_block = self.get_cpu_parm("flash_prog_buffer_size",
-                flash_prog_buffer_size_default)
+        ram_block = self.cpu.get_parameter("flash_prog_buffer_size",
+                self.FLASH_BUFFER_SIZE_DEFAULT)
 
         # if the image starts at the start of a flash bank then make it bootable
         # by inserting a checksum at the right place in the vector table
@@ -783,7 +466,7 @@ class nxpprog:
             image += self.bytestr(0xff, pad_count)
             image_len += pad_count
 
-        log("padding with %d bytes" % pad_count)
+        logger.info("Padding with %d bytes" % pad_count)
 
         if erase_all:
             self.erase_all()
@@ -797,9 +480,7 @@ class nxpprog:
 
             flash_addr_start = image_index + flash_addr_base
             flash_addr_end = flash_addr_start + a_ram_block
-            progress = (image_index / image_len) * 100
-
-            log("writing %d bytes to %6x (%3.0f%%)" % (a_ram_block, flash_addr_start, progress))
+            image_index_stop = (image_index + a_ram_block)
 
             self.write_ram_data(ram_addr,
                     image[image_index: image_index + a_ram_block])
@@ -814,9 +495,17 @@ class nxpprog:
             self.isp_command("C %d %d %d" %
                     (flash_addr_start, ram_addr, a_ram_block))
 
+            left_KB = (image_len - image_index_stop) / 1024
+            written_KB = a_ram_block/1024
+            progress = (image_index_stop / image_len) * 100
+            logger.info('Writted %dKB to 0x%-6x    %3dKB left (%3.0f%%)',
+                    written_KB, flash_addr_start, left_KB, progress)
 
-    def start(self, addr = 0):
-        mode = self.get_cpu_parm("cpu_type", "arm")
+        logger.info('Image written to flash')
+
+    def start(self, addr=None):
+        addr = addr or 0
+        mode = self.cpu.get_parameter("cpu_type", "arm")
         # start image at address 0
         if mode == "arm":
             m = "A"
@@ -826,6 +515,7 @@ class nxpprog:
             panic("invalid mode to start")
 
         self.isp_command("G %d %s" % (addr, m))
+        logger.info('Starting chip at 0x%x', addr)
 
 
     def select_bank(self, bank):
@@ -851,105 +541,90 @@ class nxpprog:
 
 
 if __name__ == "__main__":
-    # defaults
-    osc_freq = 16000 # kHz
-    baud = 115200
-    cpu = "autodetect"
-    flash_addr_base = 0
-    erase_all = 0
-    erase_only = 0
-    xonxoff = 0
-    start = 0
-    control = 0
-    filetype = "bin"
-    select_bank = 0
-    read = 0
-    readlen = 0
+    import argparse
 
-    optlist, args = getopt.getopt(sys.argv[1:], '',
-            ['cpu=', 'oscfreq=', 'baud=', 'addr=', 'start=',
-                'filetype=', 'bank=', 'read=', 'len=',
-                'xonxoff', 'eraseall', 'eraseonly', 'list', 'control'])
+    parser = argparse.ArgumentParser(description='Flasher for NXP chips')
 
-    for o, a in optlist:
-        if o == "--list":
-            log("Supported cpus:")
-            for val in cpu_parms.keys():
-                log(" %s" % val)
-            sys.exit(0)
-        if o == "--cpu":
-            cpu = a
-        elif o == "--xonxoff":
-            xonxoff = 1
-        elif o == "--oscfreq":
-            osc_freq = int(a)
-        elif o == "--addr":
-            flash_addr_base = int(a, 0)
-        elif o == "--baud":
-            baud = int(a)
-        elif o == "--eraseall":
-            erase_all = 1
-        elif o == "--eraseonly":
-            erase_only = 1
-        elif o == "--control":
-            control = 1
-        elif o == "--filetype":
-            filetype = a
-            if not ( filetype == "bin" or filetype == "ihex" ):
-                panic("invalid filetype: %s" % filetype)
-        elif o == "--start":
-            start = 1
-            if a:
-                startaddr = int(a, 0)
-            else:
-                startaddr = 0
-        elif o == "--bank":
-            select_bank = 1
-            bank = int(a)
-        elif o == "--read":
-            read = 1
-            readfile = a
-        elif o == "--len":
-            readlen = int(a)
-        else:
-            panic("unhandled option: %s" % o)
+    parser.add_argument('device', metavar='SERIAL_DEVICE',
+            help='Device to flash')
+    parser.add_argument('image_file', metavar='IMAGE', nargs='?',
+            help='Image file')
 
-    if cpu != "autodetect" and not cpu in cpu_parms:
-        panic("unsupported cpu %s" % cpu)
+    actions_group = parser.add_mutually_exclusive_group()
+    actions_group.add_argument('--list', '-l', action='store_true',
+            help='List supported chips and exit')
+    actions_group.add_argument('--read', '-r', type=argparse.FileType('r'), default=None,
+            help='Read the data on the chip')
+    actions_group.add_argument('--start', '-s', type=int, default=None,
+            help='Set the start address of the chip')
+    actions_group.add_argument('--eraseonly', '-e', action='store_true',
+            help='Don\'t program, just erase. Implies --eraseall')
+    actions_group.add_argument('--selectbank', type=int, choices=(0, 1),
+            help='Select bank for devices with flash banks')
 
-    if len(args) == 0:
-        syntax()
+    parser.add_argument('--cpu', '-c', metavar='CPU', choices=list(NXPchip.CPUS.keys()), default=None,
+            help='Specify chip')
+    parser.add_argument('--baudrate', '-b', metavar='BAUD', type=int, choices=NXPprog.BAUDRATES, default=115200,
+            help='Specify baudrate for communication')
+    parser.add_argument('--oscfreq', type=int, default=16000,
+            help='OSC Freq')
+    parser.add_argument('--xonxoff', action='store_true',
+            help='Enable XonXoff flow control')
+    parser.add_argument('--control', action='store_true',
+            help='Use RTS and DTR to control reset and int0')
+    parser.add_argument('--addr', '-a', type=int,
+            help='Set the base address for the image')
+    parser.add_argument('--filetype', choices=('ihex', 'bin'), default='bin',
+            help='Set filetype to Intel hex or raw binary')
+    parser.add_argument('--eraseall', '-E', action='store_true',
+            help='Erase all the flash, not just the area written to')
+    parser.add_argument('--length', '-L', type=int,
+            help='Specify the length to read (only usefull with --read)')
 
-    log("cpu=%s oscfreq=%d baud=%d" % (cpu, osc_freq, baud))
+    args = parser.parse_args()
 
-    device = args[0]
+    if args.list:
+        logger.info("Supported cpus:")
+        chips = sorted(list(NXPchip.CPUS.keys()))
+        while len(chips):
+            c = chips[0:4]
+            chips = chips[4:]
+            logger.info('\t'.join([x.upper() for x in c]))
 
-    prog = nxpprog(cpu, device, baud, osc_freq, xonxoff, control)
+        parser.exit(0)
 
-    if erase_only:
+    if not (args.eraseonly or args.start or args.selectbank or args.read) \
+            and not args.image_file:
+        parser.error('argument IMAGE_FILE is required in this mode')
+        parser.exit(1)
+
+    prog = NXPprog(**vars(args))
+    prog.init_serial()
+
+    logger.info("Initializing with cpu=%s oscfreq=%d baud=%d" % (prog.cpu.name, prog.oscfreq, prog.baudrate))
+
+    if args.eraseonly:
         prog.erase_all()
-    elif start:
-        prog.start(startaddr)
-    elif select_bank:
-        prog.select_bank(bank)
-    elif read:
-        if not readlen:
-            panic("read length is 0")
+    elif args.start is not None:
+        prog.start()
+    elif args.selectbank:
+        prog.select_bank(args.selectbank)
+    elif args.read:
         fd = open(readfile, "w")
-        prog.read_block(flash_addr_base, readlen, fd)
-        fd.close()
+        prog.read_block(args.addr, readlen, args.read)
     else:
-        if len(args) != 2:
-            syntax()
+        if not args.image_file:
+            parser.exit(1)
 
-        filename = args[1]
+        filename = args.image_file
 
-        if filetype == "ihex":
+        if args.filetype == "ihex":
             ih = ihex.ihex(filename)
-            (flash_addr_base, image) = ih.flatten()
+            (args.addr, image) = ih.flatten()
         else:
-            image = open(filename, "rb").read()
+            with open(filename, "rb") as f:
+                image = f.read()
 
-        prog.prog_image(image, flash_addr_base, erase_all)
+        prog.prog_image(image, args.addr, args.eraseall)
 
-        prog.start(flash_addr_base)
+        prog.start(args.addr)

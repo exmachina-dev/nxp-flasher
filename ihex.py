@@ -20,8 +20,11 @@ class ihex:
     TYPE_EXTENDED_LINEAR_ADDR = 4
     TYPE_START_LINEAR_ADDR = 5
 
-    def __init__(self, filename):
-        fd = open(filename, "r")
+    def __init__(self, fn=None, fd=None):
+        if fn:
+            fd = open(fn, "r")
+        else:
+            fd = fd
 
         self.data = []
 
