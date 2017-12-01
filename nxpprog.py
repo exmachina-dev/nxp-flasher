@@ -57,7 +57,7 @@ class NXPprog(object):
     UU_BLOCK_SIZE = UU_LINE_SIZE * 20
 
     FLASH_BUFFER_BASE_DEFAULT = 0x40001000
-    FLASH_BUFFER_SIZE_DEFAULT = 4096
+    FLASH_BUFFER_SIZE_DEFAULT = 4096  # Can be 256, 512, 1024 or 4096
 
     def __init__(self, **kwargs):
         self.serdev = None
@@ -308,6 +308,10 @@ class NXPprog(object):
         return decoded[0:linelen]
 
 
+    def read_serialnumber(self):
+        sn = ['0x%x' % x for x in self.get_devsn()]
+        logger.info('Device S/N: %s', ' '.join(sn))
+
     def read_block(self, addr, data_len, fd = None):
         self.isp_command("R %d %d\n" % ( addr, data_len ))
 
@@ -440,6 +444,8 @@ class NXPprog(object):
         self.erase_sectors(0, end_sector)
 
     def prog_image(self, image, flash_addr_base=None, erase_all=False):
+        self.read_serialnumber()
+
         if flash_addr_base is None:
             flash_addr_base = 0
 
@@ -526,7 +532,6 @@ class NXPprog(object):
 
         return 0
 
-
     def get_devid(self):
         self.isp_command("J")
         id1 = self.dev_readline()
@@ -537,6 +542,14 @@ class NXPprog(object):
             ret = (int(id1), int(id2))
         else:
             ret = int(id1)
+        return ret
+
+    def get_devsn(self):
+        self.isp_command("N")
+        ret = list()
+        for i in range(4):
+            ret.append(int(self.dev_readline(.2), 0))
+
         return ret
 
 
@@ -561,6 +574,8 @@ if __name__ == "__main__":
             help='Don\'t program, just erase. Implies --eraseall')
     actions_group.add_argument('--selectbank', type=int, choices=(0, 1),
             help='Select bank for devices with flash banks')
+    actions_group.add_argument('--read-serialnumber', '-S', action='store_true',
+            help='Read serialnumber from connected device')
 
     parser.add_argument('--cpu', '-c', metavar='CPU', choices=list(NXPchip.CPUS.keys()), default=None,
             help='Specify chip')
@@ -593,7 +608,8 @@ if __name__ == "__main__":
 
         parser.exit(0)
 
-    if not (args.eraseonly or args.start or args.selectbank or args.read) \
+    if not (args.eraseonly or args.start or args.selectbank or
+            args.read or args.read_serialnumber) \
             and not args.image_file:
         parser.error('argument IMAGE_FILE is required in this mode')
         parser.exit(1)
@@ -609,6 +625,8 @@ if __name__ == "__main__":
         prog.start()
     elif args.selectbank:
         prog.select_bank(args.selectbank)
+    elif args.read_serialnumber:
+        prog.read_serialnumber()
     elif args.read:
         fd = open(readfile, "w")
         prog.read_block(args.addr, readlen, args.read)
