@@ -146,14 +146,6 @@ class NXPprog(object):
         self.isp_command("U 23130")
 
 
-    def errexit(self, str, status):
-        if not status:
-            panic("%s: timeout" % str)
-        err = int(status)
-        if err != 0:
-            panic("%s: %d" % (str, err))
-
-
     def isp_command(self, cmd):
         self.programmer.writeln(cmd.encode())
 
@@ -162,7 +154,9 @@ class NXPprog(object):
             self.programmer.readline()
 
         status = self.programmer.readline()
-        self.errexit("'%s' error" % cmd, status)
+        if int(status) != 0:
+            logger.error('Error with {!r} command: {}'.format(cmd, status))
+            sys.exit(1)
 
 
     def sync(self, osc):
@@ -244,7 +238,8 @@ class NXPprog(object):
         uu_linelen = (linelen + 3 - 1) / 3 * 4
 
         if uu_linelen + 1 != len(line):
-            panic("error in line length")
+            logger.error("Error in line length")
+            sys.exit(1)
 
         # pure python implementation - if this was C we would
         # use bitshift operations here
@@ -476,7 +471,8 @@ class NXPprog(object):
         elif mode == "thumb":
             m = "T"
         else:
-            panic("invalid mode to start")
+            logger.error("Invalid mode to start: {}".format(mode))
+            sys.exit(1)
 
         self.isp_command("G %d %s" % (addr, m))
         logger.info('Starting chip at 0x%x', addr)
