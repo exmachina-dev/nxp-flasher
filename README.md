@@ -7,21 +7,30 @@ This tool allows to flash NXP chips from command-line.
 
 To get the list of supported chips:
 ```sh
-nxpprog.py -l
+python.exe .\nxpprog.py -l
 ```
 
 To display help and usage, simply type:
 ```sh
-nxpprog.py
+python.exe .\nxpprog.py
 ```
+
+To use an other programmer, type:
+```sh
+python.exe .\nxpprog.py -p PROGRAMMER
+```
+
+Available programmers are:
+- serial
+- buspirate
 
 # Notes
 
 Althought it should support every chip specified in nxpchips.py file, it has
 only been tested with the LPC1768.
 
-Because this tool is written in Python it should run on every platform.
-Even if it's been only tested on Windows 10.
+Because this tool is written in Python it should run on every platform,
+even if it's been only tested on Windows 10.
 
 # Source code and credits
 
