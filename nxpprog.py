@@ -27,12 +27,11 @@ import binascii
 import sys
 import struct
 import getopt
-import serial # pyserial
-import time
 import logging
 
 import ihex
 from nxpchips import NXPchip
+from programmers import find_programmer, ProgrammerError
 
 logger = logging.getLogger('NXPprog')
 logger.setLevel(logging.DEBUG)
@@ -60,11 +59,12 @@ class NXPprog(object):
     FLASH_BUFFER_SIZE_DEFAULT = 4096  # Can be 256, 512, 1024 or 4096
 
     def __init__(self, **kwargs):
-        self.serdev = None
+        self.programmer = None
         self.echo_on = 1
 
         self.device = kwargs.pop('device')
         self.baudrate = kwargs.pop('baudrate', 115200)
+        self.programmer_name = kwargs.pop('programmer', 'serial')
         self.xonxoff = kwargs.pop('xonxoff', False)
         self.control_isp_mode = kwargs.pop('control', False)
 
@@ -76,29 +76,33 @@ class NXPprog(object):
 
         self.oscfreq = kwargs.pop('oscfreq', 16000)
 
-    def init_serial(self):
-        if self.serdev:
-            raise OSError('Serial connection already started')
+    def init_programmer(self):
+        if self.programmer:
+            raise OSError('Programmer already started')
 
-        self.serdev = serial.Serial(self.device, self.baudrate)
+        self.programmer = find_programmer(self.programmer_name)(self.device, self.baudrate)
+
+        try:
+            self.programmer.init_device()
+        except ProgrammerError as e:
+            logger.error('Could not start programmer: {!s}'.format(e))
+            raise e
 
         # set a two second timeout just in case there is nothing connected
         # or the device is in the wrong mode.
         # This timeout is too short for slow baud rates but who wants to
         # use them?
-        self.serdev.timeout = 5
+        self.programmer.timeout = 2
         # device wants Xon Xoff flow control
-        if self.xonxoff:
-            self.serdev.xonxoff = 1
+        self.programmer.xonxoff = 1
 
         # reset pin is controlled by DTR implying int0 is controlled by RTS
         self.reset_pin = "dtr"
 
-        if self.control_isp_mode:
-            self.isp_mode()
+        if self.control_isp_mode is True:
+            self.programmer.enter_isp_mode()
 
-        self.serdev.reset_input_buffer()
-
+        self.programmer.post_isp_mode()
         self.connection_init()
 
         self.banks = self.cpu.get_parameter("flash_bank_addr", 0)
@@ -107,22 +111,6 @@ class NXPprog(object):
             self.sector_commands_need_bank = 0
         else:
             self.sector_commands_need_bank = 1
-
-    def isp_mode(self):
-        """
-            Put the chip in isp mode by resetting it using RTS and DTR signals
-            this is of course only possible if the signals are connected in
-            this way
-        """
-
-        self.reset(0)
-        time.sleep(.1)
-        self.reset(1)
-        self.int0(1)
-        time.sleep(.1)
-        self.reset(0)
-        time.sleep(.1)
-        self.int0(0)
 
     def reset(self, level):
         if self.reset_pin == "rts":
@@ -158,35 +146,6 @@ class NXPprog(object):
         self.isp_command("U 23130")
 
 
-    def dev_write(self, data):
-        self.serdev.write(data)
-
-    def dev_writeln(self, data):
-        self.serdev.write(bytes(data, 'UTF-8'))
-        self.serdev.write(b'\r\n')
-
-    def dev_readline(self, timeout=None):
-        if timeout:
-            ot = self.serdev.timeout
-            self.serdev.timeout = timeout
-
-        line = b''
-        while 1:
-            c = self.serdev.read(1)
-            if not c:
-                break
-            if c in (b'\n', b'\r'):
-                if not line:
-                    continue
-                else:
-                    break
-            line += c
-
-        if timeout:
-            self.serdev.timeout = ot
-
-        return line.decode("UTF-8")
-
     def errexit(self, str, status):
         if not status:
             panic("%s: timeout" % str)
@@ -196,19 +155,19 @@ class NXPprog(object):
 
 
     def isp_command(self, cmd):
-        self.dev_writeln(cmd)
+        self.programmer.writeln(cmd.encode())
 
         # throw away echo data
         if self.echo_on:
-            self.dev_readline()
+            self.programmer.readline()
 
-        status = self.dev_readline()
+        status = self.programmer.readline()
         self.errexit("'%s' error" % cmd, status)
 
 
     def sync(self, osc):
-        self.dev_write(b'?')
-        s = self.dev_readline()
+        self.programmer.write(b'?')
+        s = self.programmer.readline()
         if not s:
             logger.error("Sync timeout")
             sys.exit(1)
@@ -216,30 +175,29 @@ class NXPprog(object):
             logger.error("No sync string read (got {}, expected {})".format(s, self.SYNC_STR))
             sys.exit(1)
 
-        self.dev_writeln(self.SYNC_STR)
-        # receive our echoed data
-        s = self.dev_readline()
+        self.programmer.writeln(self.SYNC_STR.encode())
+        s = self.programmer.readline()
         if s != self.SYNC_STR:
             logger.error("No sync string read (got {}, expected {})".format(s, self.SYNC_STR))
             sys.exit(1)
 
-        s = self.dev_readline()
+        s = self.programmer.readline()
         if s != self.OK:
             logger.error("No OK string read (got {}, expected {})".format(s, self.OK))
             sys.exit(1)
 
-        self.dev_writeln('%d' % osc)
+        self.programmer.writeln(b'%d' % osc)
         # discard echo
-        s = self.dev_readline()
-        s = self.dev_readline()
+        s = self.programmer.readline()
+        s = self.programmer.readline()
         if s != self.OK:
             logger.error("No OK string read while setting OSC (got {}, expected {})".format(s, self.OK))
             sys.exit(1)
 
-        self.dev_writeln('A 0')
+        self.programmer.writeln('A 0'.encode())
         # discard echo
-        s = self.dev_readline()
-        s = self.dev_readline()
+        s = self.programmer.readline()
+        s = self.programmer.readline()
         if int(s):
             logger.warn("Disabling echo failed")
 
@@ -264,11 +222,11 @@ class NXPprog(object):
                 c_line_size = self.UU_LINE_SIZE
             block = data[i:i+c_line_size]
             bstr = binascii.b2a_uu(block)
-            self.dev_write(bstr)
+            self.programmer.write(bstr)
 
 
-        self.dev_writeln('%s' % self.sum(data))
-        status = self.dev_readline()
+        self.programmer.writeln(('%s' % self.sum(data)).encode())
+        status = self.programmer.readline()
         if not status:
             return "timeout"
         if status == self.RESEND:
@@ -324,17 +282,17 @@ class NXPprog(object):
                 lines = 20
             cdata = ""
             for i in range(0, lines):
-                line = self.dev_readline()
+                line = self.programmer.readline()
                 decoded = self.uudecode(line)
                 cdata += decoded
 
-            s = self.dev_readline()
+            s = self.programmer.readline()
 
             if int(s) != self.sum(cdata):
                 logger.error("Checksum mismatch on read got %x expected %x" % (int(s), self.sum(data)))
                 sys.exit(1)
             else:
-                self.dev_writeln(self.OK)
+                self.programmer.writeln(self.OK.encode())
 
             if fd:
                 fd.write(cdata)
@@ -534,10 +492,10 @@ class NXPprog(object):
 
     def get_devid(self):
         self.isp_command("J")
-        id1 = self.dev_readline()
+        id1 = self.programmer.readline()
 
         # FIXME find a way of doing this without a timeout
-        id2 = self.dev_readline(.2)
+        id2 = self.programmer.readline(.2)
         if id2:
             ret = (int(id1), int(id2))
         else:
@@ -548,9 +506,12 @@ class NXPprog(object):
         self.isp_command("N")
         ret = list()
         for i in range(4):
-            ret.append(int(self.dev_readline(.2), 0))
+            ret.append(int(self.programmer.readline(.2), 0))
 
         return ret
+
+    def finalize(self):
+        self.programmer.post_prog()
 
 
 if __name__ == "__main__":
@@ -596,6 +557,9 @@ if __name__ == "__main__":
     parser.add_argument('--length', '-L', type=int,
             help='Specify the length to read (only usefull with --read)')
 
+    parser.add_argument('--programmer', '-p',
+            help='Connected programmer')
+
     args = parser.parse_args()
 
     if args.list:
@@ -615,34 +579,37 @@ if __name__ == "__main__":
         parser.exit(1)
 
     prog = NXPprog(**vars(args))
-    prog.init_serial()
+    prog.init_programmer()
 
     logger.info("Initializing with cpu=%s oscfreq=%d baud=%d" % (prog.cpu.name, prog.oscfreq, prog.baudrate))
 
-    if args.eraseonly:
-        prog.erase_all()
-    elif args.start is not None:
-        prog.start()
-    elif args.selectbank:
-        prog.select_bank(args.selectbank)
-    elif args.read_serialnumber:
-        prog.read_serialnumber()
-    elif args.read:
-        fd = open(readfile, "w")
-        prog.read_block(args.addr, readlen, args.read)
-    else:
-        if not args.image_file:
-            parser.exit(1)
-
-        filename = args.image_file
-
-        if args.filetype == "ihex":
-            ih = ihex.ihex(filename)
-            (args.addr, image) = ih.flatten()
+    try:
+        if args.eraseonly:
+            prog.erase_all()
+        elif args.start is not None:
+            prog.start()
+        elif args.selectbank:
+            prog.select_bank(args.selectbank)
+        elif args.read_serialnumber:
+            prog.read_serialnumber()
+        elif args.read:
+            fd = open(readfile, "w")
+            prog.read_block(args.addr, readlen, args.read)
         else:
-            with open(filename, "rb") as f:
-                image = f.read()
+            if not args.image_file:
+                parser.exit(1)
 
-        prog.prog_image(image, args.addr, args.eraseall)
+            filename = args.image_file
 
-        prog.start(args.addr)
+            if args.filetype == "ihex":
+                ih = ihex.ihex(filename)
+                (args.addr, image) = ih.flatten()
+            else:
+                with open(filename, "rb") as f:
+                    image = f.read()
+
+            prog.prog_image(image, args.addr, args.eraseall)
+
+            prog.start(args.addr)
+    finally:
+        prog.finalize()
