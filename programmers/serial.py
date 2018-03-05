@@ -42,19 +42,6 @@ class SerialProgrammer(AbstractProgrammer):
         time.sleep(2)
         logger.warn("Release BOOT button.")
 
-    def post_isp_mode(self):
-        self._write(bytes((self.UART_START_ECHO_CMD,)))
-        data = self.read(1)
-        print('RX: {:b}'.format(data[0]))
-
-        if self.bridge_mode == True:
-            self._write(bytes((self.UART_BRIDGE_CMD,)))
-            data = self.read(1)
-            print('BRIDGE: {:b}'.format(data[0]))
-            self._bridge_mode = True
-            logger.info('Bridge mode active. You will need to'
-                    ' unplug/plug your BusPirate to reset it.')
-
     def post_prog(self):
         logger.warn('Please reset the board manually.')
 
