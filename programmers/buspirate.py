@@ -57,7 +57,7 @@ class BusPirate(SerialProgrammer):
     CS_PIN =     0b00000001
 
     def __init__(self, device, baudrate, *args, **kwargs):
-        super().__init__(device, baudrate, *args, kwargs)
+        super().__init__(device, baudrate, *args, **kwargs)
         self._pinstate = 0
         self._pinconf = 0
         self._bridge_mode = False

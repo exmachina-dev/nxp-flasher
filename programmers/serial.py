@@ -22,7 +22,7 @@ logger = logging.getLogger('NXPprog.SerialProgrammer')
 
 class SerialProgrammer(AbstractProgrammer):
     def __init__(self, device, baudrate, *args, **kwargs):
-        super().__init__(self, *args, kwargs)
+        super().__init__(self, *args, **kwargs)
         self.device, self.baudrate = device, baudrate
         self._serial = None
 
