@@ -69,6 +69,7 @@ class BusPirate(SerialProgrammer):
             raise ProgrammerError('BusPirate is already started.')
 
         self._serial = serial.Serial(self.device, 115200)
+        self.timeout = self._timeout
 
         self.read(timeout=.1)
         self._write(b'\x0f') # Reset BusPirate if in binary mode
