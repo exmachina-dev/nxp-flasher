@@ -163,7 +163,10 @@ class NXPprog(object):
         self.programmer.write(b'?')
         s = self.programmer.readline()
         if not s:
-            logger.error("Sync timeout")
+            if self.cpu is not None:
+                logger.error("Sync timeout. Is the {} chip powered?".format(self.cpu))
+            else:
+                logger.error("Sync timeout. Is the chip powered?")
             sys.exit(1)
         if s != self.SYNC_STR:
             logger.error("No sync string read (got {}, expected {})".format(s, self.SYNC_STR))
