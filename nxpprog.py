@@ -516,6 +516,10 @@ class NXPprog(object):
 if __name__ == "__main__":
     import argparse
 
+    import sys
+    if sys.version_info[0] < 3:
+        raise RuntimeError('Only python 3 and later are supported')
+
     parser = argparse.ArgumentParser(description='Flasher for NXP chips')
 
     parser.add_argument('device', metavar='SERIAL_DEVICE',
