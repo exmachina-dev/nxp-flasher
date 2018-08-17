@@ -77,7 +77,8 @@ class BusPirate(SerialProgrammer):
         time.sleep(.1)
         self.read()
         self._write(bytes(20)) # Enter binary mode: \x00 * 20
-        data = self.read(5)
+        time.sleep(.1)
+        data = self.read(5, timeout=1)
         if b'BBIO' in data:
             logger.info('BusPirate in binary mode v{}'.format(chr(data[4])))
         else:
@@ -86,13 +87,15 @@ class BusPirate(SerialProgrammer):
             logger.error(err)
             raise err
 
+        self.read()
         self._write(b'\x03')  # Enter UART mode
+        time.sleep(.1)
         data = self.read(4)
         if b'ART' in data:
             logger.info('BusPirate in UART mode v{}'.format(chr(data[3])))
         else:
             logger.info(data)
-            err = ProgrammerError('BusPirate not responding.')
+            err = ProgrammerError('BusPirate not responding in UART mode.')
             logger.error(err)
             raise err
 
