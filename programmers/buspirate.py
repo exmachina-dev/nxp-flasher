@@ -17,8 +17,6 @@ import logging
 from .abstract import ProgrammerError
 from .serial import SerialProgrammer
 
-logger = logging.getLogger('NXPprog.BusPirate')
-
 
 class BusPirate(SerialProgrammer):
     PINDIR_CMD = 0b01000000
@@ -80,11 +78,11 @@ class BusPirate(SerialProgrammer):
         time.sleep(.1)
         data = self.read(5, timeout=1)
         if b'BBIO' in data:
-            logger.info('BusPirate in binary mode v{}'.format(chr(data[4])))
+            self.logger.info('BusPirate in binary mode v{}'.format(chr(data[4])))
         else:
-            logger.info(data)
+            self.logger.info(data)
             err = ProgrammerError('BusPirate not responding.')
-            logger.error(err)
+            self.logger.error(err)
             raise err
 
         self.read()
@@ -92,11 +90,11 @@ class BusPirate(SerialProgrammer):
         time.sleep(.1)
         data = self.read(4)
         if b'ART' in data:
-            logger.info('BusPirate in UART mode v{}'.format(chr(data[3])))
+            self.logger.info('BusPirate in UART mode v{}'.format(chr(data[3])))
         else:
-            logger.info(data)
+            self.logger.info(data)
             err = ProgrammerError('BusPirate not responding in UART mode.')
-            logger.error(err)
+            self.logger.error(err)
             raise err
 
         self._write(bytes((self.UART_SPEED_CMD | self.UART_BAUD_115200,)))
@@ -129,7 +127,7 @@ class BusPirate(SerialProgrammer):
             self._write(bytes((self.UART_BRIDGE_CMD,)))
             data = self.read(1)
             self._bridge_mode = True
-            logger.info('Bridge mode active. You will need to'
+            self.logger.info('Bridge mode active. You will need to'
                     ' unplug/plug your BusPirate to reset it.')
 
     def post_prog(self):
@@ -139,7 +137,7 @@ class BusPirate(SerialProgrammer):
             self.set_aux_pin(True)
             self._write(b'x\00'*20)
         else:
-            logger.warn('Bridge mode active. Unplug/plug your'
+            self.logger.warn('Bridge mode active. Unplug/plug your'
                     ' BusPirate to reset it.')
 
     def set_aux_pin(self, state):

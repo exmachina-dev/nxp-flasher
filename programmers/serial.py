@@ -17,11 +17,11 @@ import logging
 from .abstract import AbstractProgrammer
 from .abstract import ProgrammerError
 
-logger = logging.getLogger('NXPprog.SerialProgrammer')
 
 
 class SerialProgrammer(AbstractProgrammer):
     def __init__(self, device, baudrate, *args, **kwargs):
+        self.logger = logging.getLogger('NXPprog.%s' % (self.__class__.__name__))
         super().__init__(self, *args, **kwargs)
         self.device, self.baudrate = device, baudrate
         self._serial = None
@@ -35,15 +35,15 @@ class SerialProgrammer(AbstractProgrammer):
         self.timeout = self._timeout
 
     def enter_isp_mode(self):
-        logger.warn("Serial cannot control ISP mode.")
-        logger.warn("Press both BOOT and RESET buttons.")
+        self.logger.warn("Serial cannot control ISP mode.")
+        self.logger.warn("Press both BOOT and RESET buttons.")
         time.sleep(2)
-        logger.warn("Release RESET button.")
+        self.logger.warn("Release RESET button.")
         time.sleep(2)
-        logger.warn("Release BOOT button.")
+        self.logger.warn("Release BOOT button.")
 
     def post_prog(self):
-        logger.warn('Please reset the board manually.')
+        self.logger.warn('Please reset the board manually.')
 
     def read(self, size=None, timeout=None):
         if timeout:
@@ -74,6 +74,6 @@ class SerialProgrammer(AbstractProgrammer):
     def timeout(self, timeout):
         if self._serial:
             self._serial.timeout = timeout
-            logger.info('Timeout set to {}s'.format(timeout))
+            self.logger.info('Timeout set to {}s'.format(timeout))
         else:
             self._timeout = timeout
