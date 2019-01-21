@@ -618,6 +618,10 @@ if __name__ == "__main__":
                 parser.exit(1)
 
             filename = args.image_file
+            input_file = Path(args.image_file)
+            if not (input_file.exists() and input_file.is_file()):
+                logger.error("File does not exist")
+                parser.exit(1)
 
             if args.filetype == "ihex":
                 ih = ihex.ihex(filename)
