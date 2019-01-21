@@ -93,7 +93,7 @@ class NXPprog(object):
         # or the device is in the wrong mode.
         # This timeout is too short for slow baud rates but who wants to
         # use them?
-        self.programmer.timeout = 2
+        self.programmer.timeout = 0.3
         # device wants Xon Xoff flow control
         self.programmer.xonxoff = 1
 
