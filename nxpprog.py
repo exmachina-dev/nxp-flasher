@@ -97,9 +97,6 @@ class NXPprog(object):
         # device wants Xon Xoff flow control
         self.programmer.xonxoff = 1
 
-        # reset pin is controlled by DTR implying int0 is controlled by RTS
-        self.reset_pin = "dtr"
-
         if self.control_isp_mode is True:
             self.programmer.enter_isp_mode()
 
@@ -112,19 +109,6 @@ class NXPprog(object):
             self.sector_commands_need_bank = 0
         else:
             self.sector_commands_need_bank = 1
-
-    def reset(self, level):
-        if self.reset_pin == "rts":
-            self.serdev.rts = level
-        else:
-            self.serdev.dtr = level
-
-    def int0(self, level):
-        # if reset pin is rts int0 pin is dtr
-        if self.reset_pin == "rts":
-            self.serdev.dtr = level
-        else:
-            self.serdev.rts = level
 
     def connection_init(self):
         self.sync(self.oscfreq)
