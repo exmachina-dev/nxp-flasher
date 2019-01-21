@@ -579,7 +579,8 @@ if __name__ == "__main__":
     prog = NXPprog(**vars(args))
     prog.init_programmer()
 
-    logger.info("Initializing with cpu=%s oscfreq=%d baud=%d" % (prog.cpu.name, prog.oscfreq, prog.baudrate))
+    logger.info("Initializing with cpu=%s oscfreq=%d baud=%d",
+                prog.cpu.name, prog.oscfreq, prog.baudrate)
 
     args.addr = int(args.addr, 0) # Convert string int representation to int
                                   # This allows to accept args written in hex
