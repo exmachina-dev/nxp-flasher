@@ -28,6 +28,7 @@ import sys
 import struct
 import getopt
 import logging
+from pathlib import Path
 
 import ihex
 from nxpchips import NXPchip
@@ -204,7 +205,7 @@ class NXPprog(object):
     def sum(self, data):
         s = 0
         for i in data:
-            s += i
+            s += int(i)
         return s
 
 
@@ -235,62 +236,56 @@ class NXPprog(object):
         sys.exit(1)
 
     def uudecode(self, line):
-        # uu encoded data has an encoded length first
-        linelen = ord(line[0]) - 32
-
-        uu_linelen = (linelen + 3 - 1) / 3 * 4
-
-        if uu_linelen + 1 != len(line):
-            logger.error("Error in line length")
-            sys.exit(1)
-
-        # pure python implementation - if this was C we would
-        # use bitshift operations here
-        decoded = ""
-        for i in range(1, len(line), 4):
-            c = 0
-            for j in line[i: i + 4]:
-                ch = ord(j) - 32
-                ch %= 64
-                c = c * 64 + ch
-            s = []
-            for j in range(0, 3):
-                s.append(c % 256)
-                c /= 256
-            for j in reversed(s):
-                decoded = decoded + chr(j)
-
-        # only return real data
-        return decoded[0:linelen]
-
+        try:
+            return binascii.a2b_uu(line)
+        except binascii.Error:
+            nbytes = (((ord(line[0])-32) & 63) * 4 + 5) // 3
+            return binascii.a2b_uu(line[:nbytes])
 
     def read_serialnumber(self):
         sn = ['0x%x' % x for x in self.get_devsn()]
         logger.info('Device S/N: %s', ' '.join(sn))
 
-    def read_block(self, addr, data_len, fd = None):
+    def read_block(self, addr, data_len, fd=None):
+        if data_len % 4:
+            logger.error("Data length must be a multiple of 4")
+            sys.exit(1)
         self.isp_command("R %d %d\n" % ( addr, data_len ))
 
-        expected_lines = (data_len + self.UU_LINE_SIZE - 1)/self.UU_LINE_SIZE
+        expected_lines = int(data_len / (self.UU_LINE_SIZE - 1))
 
-        data = ""
+        data = b""
+        remaining_data_len = data_len
+        current_addr = addr
         for i in range(0, expected_lines, 20):
             lines = expected_lines - i
             if lines > 20:
                 lines = 20
-            cdata = ""
+            cdata = b""
+            data_read_len = 0
             for i in range(0, lines):
-                line = self.programmer.readline()
-                decoded = self.uudecode(line)
+                line = self.programmer.readline(timeout=0.5)
+                try:
+                    decoded = self.uudecode(line)
+                except binascii.Error as e:
+                    logger.warn("Could no decode line: %s", str(e))
+                remaining_data_len -= len(decoded)
+                data_read_len += len(decoded)
                 cdata += decoded
 
             s = self.programmer.readline()
 
             if int(s) != self.sum(cdata):
-                logger.error("Checksum mismatch on read got %x expected %x" % (int(s), self.sum(data)))
+                logger.error("Checksum mismatch on read got %x expected %x. Retrying.",
+                             int(s), self.sum(data))
                 sys.exit(1)
             else:
                 self.programmer.writeln(self.OK.encode())
+
+            progress = (remaining_data_len / data_len) * 100
+            logger.info('Read %d bytes at 0x%-6x    (%3.0f%%)',
+                        data_read_len, current_addr, 100-progress)
+            current_addr += data_read_len
 
             if fd:
                 fd.write(cdata)
@@ -530,7 +525,7 @@ if __name__ == "__main__":
     actions_group = parser.add_mutually_exclusive_group()
     actions_group.add_argument('--list', '-l', action='store_true',
             help='List supported chips and exit')
-    actions_group.add_argument('--read', '-r', type=argparse.FileType('r'), default=None,
+    actions_group.add_argument('--read', '-r', action='store_true',
             help='Read the data on the chip')
     actions_group.add_argument('--start', '-s', type=int, default=None,
             help='Set the start address of the chip')
@@ -576,7 +571,7 @@ if __name__ == "__main__":
         parser.exit(0)
 
     if not (args.eraseonly or args.start or args.selectbank or
-            args.read or args.read_serialnumber) \
+            args.read_serialnumber) \
             and not args.image_file:
         parser.error('argument IMAGE_FILE is required in this mode')
         parser.exit(1)
@@ -596,8 +591,21 @@ if __name__ == "__main__":
         elif args.read_serialnumber:
             prog.read_serialnumber()
         elif args.read:
-            fd = open(readfile, "w")
-            prog.read_block(args.addr, readlen, args.read)
+            if not args.image_file:
+                parser.exit(1)
+            output_file = Path(args.image_file)
+            if output_file.exists():
+                logger.error("File already exists")
+                parser.exit(1)
+
+            logger.info("Reading %d bytes starting at 0x%-6x", args.length, args.addr)
+            with open(args.image_file, "wb") as fd:
+                data = prog.read_block(args.addr, args.length)
+                if data:
+                    fd.write(data)
+                    logger.info("Data saved in %s", args.image_file)
+                else:
+                    logger.warn("No data could be read")
         else:
             if not args.image_file:
                 parser.exit(1)
