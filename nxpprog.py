@@ -546,13 +546,13 @@ if __name__ == "__main__":
             help='Enable XonXoff flow control')
     parser.add_argument('--control', action='store_true',
             help='Use RTS and DTR to control reset and int0')
-    parser.add_argument('--addr', '-a', type=int,
+    parser.add_argument('--addr', '-a', type=str, default="0",
             help='Set the base address for the image')
     parser.add_argument('--filetype', choices=('ihex', 'bin'), default='bin',
             help='Set filetype to Intel hex or raw binary')
     parser.add_argument('--eraseall', '-E', action='store_true',
             help='Erase all the flash, not just the area written to')
-    parser.add_argument('--length', '-L', type=int,
+    parser.add_argument('--length', '-L', type=str, default="1",
             help='Specify the length to read (only usefull with --read)')
 
     parser.add_argument('--programmer', '-p',
@@ -580,6 +580,12 @@ if __name__ == "__main__":
     prog.init_programmer()
 
     logger.info("Initializing with cpu=%s oscfreq=%d baud=%d" % (prog.cpu.name, prog.oscfreq, prog.baudrate))
+
+    args.addr = int(args.addr, 0) # Convert string int representation to int
+                                  # This allows to accept args written in hex
+                                  # and decimal representation (i.e.: 0xf or
+                                  # 16)
+    args.length = int(args.length, 0) # Same for length
 
     try:
         if args.eraseonly:
