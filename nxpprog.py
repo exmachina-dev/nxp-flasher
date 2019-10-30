@@ -491,6 +491,10 @@ class NXPprog(object):
     def finalize(self):
         self.programmer.post_prog()
 
+    def readline(self, *args, **kwargs):
+        if self.programmer.data_available():
+            return self.programmer.read(size=self.programmer.data_available(), **kwargs)
+
 
 if __name__ == "__main__":
     import argparse
@@ -538,6 +542,8 @@ if __name__ == "__main__":
             help='Erase all the flash, not just the area written to')
     parser.add_argument('--length', '-L', type=str, default="1",
             help='Specify the length to read (only usefull with --read)')
+    parser.add_argument('--console', action='store_true',
+            help='Keep the programmer open and output bytes on the console')
 
     parser.add_argument('--programmer', '-p',
             help='Connected programmer')
@@ -619,3 +625,34 @@ if __name__ == "__main__":
             prog.start(args.addr)
     finally:
         prog.finalize()
+
+    if args.console:
+        import signal
+        import sys
+        import time
+
+        logger.info("Keeping serial link opened.")
+
+        original_sigint = signal.getsignal(signal.SIGINT)
+        def exit_gracefully(signum, frame):
+            # restore the original signal handler as otherwise evil things will happen
+            # in raw_input when CTRL+C is pressed, and our signal handler is not re-entrant
+            signal.signal(signal.SIGINT, original_sigint)
+
+            try:
+                if input("\nReally quit? (y/n)> ").lower().startswith('y'):
+                    sys.exit(0)
+
+            except KeyboardInterrupt:
+                print("Ok ok, quitting")
+                sys.exit(0)
+
+            # restore the exit gracefully handler here
+            signal.signal(signal.SIGINT, exit_gracefully)
+
+        signal.signal(signal.SIGINT, exit_gracefully)
+        while True:
+            data = prog.readline()
+            if data:
+                print(data.decode(errors="ignore"), end='')
+            time.sleep(0.1)

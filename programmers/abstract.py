@@ -32,6 +32,9 @@ class AbstractProgrammer(object):
     def write(self, data):
         raise NotImplementedError()
 
+    def data_available(self):
+        return self.in_waiting
+
     def readline(self, timeout=None, strip_end=True):
         line = b''
         while 1:
