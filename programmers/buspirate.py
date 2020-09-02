@@ -122,10 +122,12 @@ class BusPirate(SerialProgrammer):
     def post_isp_mode(self):
         self._write(bytes((self.UART_START_ECHO_CMD,)))
         data = self.read(1)
+        logger.debug('RX: {:b}'.format(data[0]))
 
         if self.bridge_mode == True:
             self._write(bytes((self.UART_BRIDGE_CMD,)))
             data = self.read(1)
+            logger.debug('BRIDGE: {:b}'.format(data[0]))
             self._bridge_mode = True
             self.logger.info('Bridge mode active. You will need to'
                     ' unplug/plug your BusPirate to reset it.')
@@ -175,6 +177,8 @@ class BusPirate(SerialProgrammer):
             self._serial.timeout = timeout
 
         data = self._serial.read(size or self._serial.in_waiting)
+        if not self.bridge_mode:
+            logger.debug('RAW', data, len(data))
 
         if timeout:
             self._serial.timeout = ot
@@ -200,6 +204,7 @@ class BusPirate(SerialProgrammer):
         data_cmd = bytes((self.UART_BULK_CMD | (data_len - 1),))
         data_cmd += data
 
+        logger.debug('BULK', end=' ')
         written_bytes = self._write(data_cmd)
 
         if ignore_reply:
