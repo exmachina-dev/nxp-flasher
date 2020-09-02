@@ -1,0 +1,91 @@
+stages:
+    - build
+    - package
+    - deploy
+
+before_script:
+    - python --version
+
+build:win:
+    stage: build
+    only:
+        - tags
+        - web
+    tags:
+        - windows
+    before_script:
+        - pip3 install --user -r requirements.txt
+    script:
+        - OUT_DIR="%CI_PROJECT_NAME% - %CI_COMMIT_REF_NAME%"
+        - PyInstaller ./nxpprog.py --onefile
+        - mkdir "%OUT_DIR%"
+        - copy dist\nxpprog.exe "%OUT_DIR%\\"
+        - copy README.md "%OUT_DIR%\\"
+        - copy LICENSE "%OUT_DIR%\\"
+    artifacts:
+        name: "%CI_PROJECT_NAME% - %CI_COMMIT_REF_NAME%"
+        paths:
+            - "%CI_PROJECT_NAME% - %CI_COMMIT_REF_NAME%"
+
+package:win:
+    stage: package
+    image: alpine
+    only:
+        - tags
+    tags:
+        - linux
+    environment:
+        name: "${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
+        url: "https://downloads.exmachina.fr/${CI_PROJECT_NAME}/${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}.zip"
+    dependencies:
+        - build:win
+    before_script:
+        - apk add --update zip
+        - 'which ssh-agent || ( apk add --update openssh-client git )'
+        - eval $(ssh-agent -s)
+        - echo "$DEPLOY_KEY" | tr -d '\r' | ssh-add - > /dev/null
+        - mkdir -p ~/.ssh
+        - chmod 700 ~/.ssh
+        - echo "$DEPLOY_HOSTKEY" > ~/.ssh/known_hosts
+        - chmod 644 ~/.ssh/known_hosts
+        - ls
+    script:
+        - export BUILD_FILENAME="${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
+        - zip -r "${BUILD_FILENAME}.zip" "${BUILD_FILENAME}"
+        - md5sum "${BUILD_FILENAME}.zip" > "${BUILD_FILENAME}.md5sum"
+        - scp "${BUILD_FILENAME}.zip" $DEPLOY_USER@downloads.exmachina.fr:"${DEPLOY_DIR}"
+        - scp "${BUILD_FILENAME}.md5sum" $DEPLOY_USER@downloads.exmachina.fr:"${DEPLOY_DIR}"
+    artifacts:
+        name: "${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
+        paths:
+            - "${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}.zip"
+            - "${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}.md5sum"
+
+deploy:win:
+    stage: deploy
+    image: alpine
+    only:
+        - /^v\d+\.\d+$/
+        - /^v\d+\.\d+\.\d+$/
+    except:
+        - branches
+    tags:
+        - linux
+    environment:
+        name: production
+        url: "https://downloads.exmachina.fr/${CI_PROJECT_NAME}/${CI_PROJECT_NAME} - latest.zip"
+    dependencies:
+        - package:win
+
+    before_script:
+        - 'which ssh-agent || ( apk add --update openssh-client git )'
+        - eval $(ssh-agent -s)
+        - echo "$DEPLOY_KEY" | tr -d '\r' | ssh-add - > /dev/null
+        - mkdir -p ~/.ssh
+        - chmod 700 ~/.ssh
+        - echo "$DEPLOY_HOSTKEY" > ~/.ssh/known_hosts
+        - chmod 644 ~/.ssh/known_hosts
+        - ls
+    script:
+        - export BUILD_FILENAME="${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
+        - ssh $DEPLOY_USER@downloads.exmachina.fr bin/update-latest.sh $CI_PROJECT_NAME "'${BUILD_FILENAME}.zip'"
