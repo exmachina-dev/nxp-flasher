@@ -16,7 +16,7 @@ build:win:
     before_script:
         - pip3 install --user -r requirements.txt
     script:
-        - OUT_DIR="%CI_PROJECT_NAME% - %CI_COMMIT_REF_NAME%"
+        - set "OUT_DIR=%CI_PROJECT_NAME% - %CI_COMMIT_REF_NAME%"
         - PyInstaller ./nxpprog.py --onefile
         - mkdir "%OUT_DIR%"
         - copy dist\nxpprog.exe "%OUT_DIR%\\"
