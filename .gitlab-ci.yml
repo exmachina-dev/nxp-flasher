@@ -6,6 +6,28 @@ stages:
 before_script:
     - python --version
 
+
+build:docs:
+    stage: build
+    image: ntwrkguru/pandoc-gitlab-ci
+    only:
+        - tags
+        - triggers
+        - web
+    tags:
+        - linux
+    before_script:
+        []
+    script:
+        - OUT_DIR="${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
+        - mkdir "${OUT_DIR}/"
+        - pandoc README.md -o "${OUT_DIR}/README.pdf" -Vpapersize:a4
+        - pandoc LICENSE -fmarkdown -o "${OUT_DIR}/LICENSE.pdf" -Vpapersize:a4
+    artifacts:
+        name: "%CI_PROJECT_NAME% - docs"
+        paths:
+            - "${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
+
 build:win:
     stage: build
     only:
@@ -39,6 +61,7 @@ package:win:
         url: "https://downloads.exmachina.fr/${CI_PROJECT_NAME}/${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}.zip"
     dependencies:
         - build:win
+        - build:docs
     before_script:
         - apk add --update zip
         - 'which ssh-agent || ( apk add --update openssh-client git )'
