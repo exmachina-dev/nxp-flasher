@@ -3,7 +3,11 @@ NXP-flasher
 
 This tool allows to flash NXP chips from command-line.
 
+You can download packaged versions for Windows at [downloads.exmachina.fr/NXP-flasher](https://downloads.exmachina.fr/NXP-flasher/).
+
 # Installation and requirements
+
+**Note**: Packaged versions do not need installation.
 
 NXP-flasher requires Python 3+ to run as well as the serial module to run.
 To install it, simply run:
@@ -19,6 +23,8 @@ pip3 install --user pyserial
 ```
 
 # Usage
+
+**Note**: In case of a packaged version, use `./nxpprog.exe` instead of `python.exe .\nxpprog.py`.
 
 To get the list of supported chips:
 ```sh
