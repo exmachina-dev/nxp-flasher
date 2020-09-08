@@ -42,8 +42,6 @@ build:win:
         - PyInstaller ./nxpprog.py --onefile
         - mkdir "%OUT_DIR%"
         - copy dist\nxpprog.exe "%OUT_DIR%\\"
-        - copy README.md "%OUT_DIR%\\"
-        - copy LICENSE "%OUT_DIR%\\"
     artifacts:
         name: "%CI_PROJECT_NAME% - %CI_COMMIT_REF_NAME%"
         paths:
