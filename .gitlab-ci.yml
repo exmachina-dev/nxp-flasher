@@ -21,7 +21,7 @@ build:docs:
     script:
         - OUT_DIR="${CI_PROJECT_NAME} - ${CI_COMMIT_REF_NAME}"
         - mkdir "${OUT_DIR}/"
-        - pandoc README.md -o "${OUT_DIR}/README.pdf" -Vpapersize:a4
+        - pandoc README.md -o "${OUT_DIR}/README.pdf" -Vpapersize:a4 -Vgeometry:margin=20mm
         - pandoc LICENSE -fmarkdown -o "${OUT_DIR}/LICENSE.pdf" -Vpapersize:a4
     artifacts:
         name: "%CI_PROJECT_NAME% - docs"
